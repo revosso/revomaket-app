@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Revomaket App</string>
+	<string>Revomaket</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>revomaket_app</string>
+	<string>Revomaket</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -44,6 +44,100 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+
+	<!-- Status bar -->
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+
+	<!-- App Transport Security: allow only HTTPS for revomaket.com and subdomains -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>revomaket.com</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionRequiresForwardSecrecy</key>
+				<false/>
+			</dict>
+		</dict>
+	</dict>
+
+	<!-- Permissions usage descriptions -->
+	<key>NSCameraUsageDescription</key>
+	<string>Revomaket needs access to your camera to take photos and upload them.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Revomaket needs access to your photo library to upload images.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Revomaket needs permission to save photos and downloaded files.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Revomaket may use the microphone for video chats and recordings.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Revomaket uses your location to show nearby listings and services.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Revomaket uses Face ID for fast and secure sign-in.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Allow tracking to personalize ads and recommendations.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Revomaket can share listings with your contacts.</string>
+
+	<!-- URL Schemes (deep linking + Auth0 callback) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.brackstechnologies.revomaket</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>revomaket</string>
+				<string>com.brackstechnologies.revomaket</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Allow url_launcher to open these schemes -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>http</string>
+		<string>https</string>
+		<string>tel</string>
+		<string>telprompt</string>
+		<string>mailto</string>
+		<string>sms</string>
+		<string>whatsapp</string>
+		<string>fb-messenger</string>
+		<string>instagram</string>
+		<string>twitter</string>
+		<string>tg</string>
+		<string>maps</string>
+		<string>comgooglemaps</string>
+		<string>waze</string>
+		<string>itms-apps</string>
+		<string>itms-appss</string>
+	</array>
+
+	<!-- Background modes for Firebase Messaging -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+
+	<!-- File sharing / document support -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 </dict>
 </plist>
