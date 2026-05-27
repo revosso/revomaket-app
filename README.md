@@ -4,9 +4,9 @@ Production-ready Flutter wrapper for [revomaket.com](https://revomaket.com/),
 optimized for Android and iOS with Auth0 authentication, deep linking,
 Firebase push notifications, offline handling, and a polished UX shell.
 
-- **Package id:** `com.brackstechnologies.revomaket`
+- **Package id:** `com.revosso.revomaket`
 - **Web target:** `https://revomaket.com/`
-- **Tech stack:** Flutter (Dart), `flutter_inappwebview`, `auth0_flutter`,
+- **Tech stack:** Flutter (Dart), `flutter_inappwebview`, `flutter_appauth`,
   `flutter_secure_storage`, `connectivity_plus`, `firebase_messaging`,
   `app_links`, `url_launcher`, `permission_handler`, `local_auth`, Provider.
 
@@ -97,7 +97,7 @@ usable during early development.
 | `AUTH0_DOMAIN`       | yes      | Auth0 tenant domain (e.g. `revomaket.us.auth0.com`).           |
 | `AUTH0_CLIENT_ID`    | yes      | Native application Client ID.                                  |
 | `AUTH0_AUDIENCE`     | optional | Identifier of the Auth0 API the app calls.                     |
-| `AUTH0_SCHEME`       | yes      | Custom scheme (matches `applicationId` by default).            |
+| `AUTH0_REDIRECT_URL` | yes      | Full OAuth redirect URI (e.g. `com.revosso.revomaket:/oauthredirect`). Must also appear in *Allowed Callback URLs*. |
 | `WEB_BASE_URL`       | yes      | URL loaded inside the WebView. Defaults to revomaket.com.      |
 | `FIREBASE_VAPID_KEY` | optional | Only required if you also build for Flutter web.               |
 
@@ -106,32 +106,33 @@ usable during early development.
 
 ## Auth0 setup
 
+The app talks to Auth0 through `flutter_appauth` (a generic AppAuth OIDC
+client) instead of the Auth0-branded SDK, so the callback URL is a single
+custom-scheme URI rather than the per-platform `/android/...` /`/ios/...`
+URLs that the Auth0 SDK uses.
+
 1. **Create a "Native" application** in the [Auth0 dashboard](https://manage.auth0.com).
-2. Under **Allowed Callback URLs** add (replace `YOUR_TENANT`):
+2. Under **Allowed Callback URLs**, add one entry:
 
    ```
-   https://YOUR_TENANT.auth0.com/android/com.brackstechnologies.revomaket/callback,
-   com.brackstechnologies.revomaket://YOUR_TENANT.auth0.com/android/com.brackstechnologies.revomaket/callback,
-   com.brackstechnologies.revomaket://YOUR_TENANT.auth0.com/ios/com.brackstechnologies.revomaket/callback,
-   https://YOUR_TENANT.auth0.com/ios/com.brackstechnologies.revomaket/callback
+   com.revosso.revomaket:/oauthredirect
    ```
 
-3. Use the **same list** for **Allowed Logout URLs**.
-4. In the application **Settings → Advanced → Grant Types**, enable
-   `Authorization Code`, `Refresh Token`, and (if you call your own API) the
-   relevant resource grants.
-5. In **APIs → Settings**, enable "Allow Offline Access" so refresh tokens are
-   issued.
+3. Use the **same value** for **Allowed Logout URLs**.
+4. **Settings → Advanced → Grant Types**: enable `Authorization Code` and
+   `Refresh Token` (the rest can stay off for a Native app).
+5. If you also set `AUTH0_AUDIENCE`, open the matching API in
+   **Applications → APIs** and turn on **Allow Offline Access** so refresh
+   tokens are issued.
 6. Update `.env` with the resulting values and run `flutter run` again.
-7. The Android manifest already wires the placeholder via:
+7. The Android side wires the redirect scheme via:
 
    ```kts
-   manifestPlaceholders["auth0Domain"] = "<your domain>"
-   manifestPlaceholders["auth0Scheme"] = "com.brackstechnologies.revomaket"
+   manifestPlaceholders["appAuthRedirectScheme"] = "com.revosso.revomaket"
    ```
 
-   Pass `AUTH0_DOMAIN` through Gradle (`gradle.properties` or `-PAUTH0_DOMAIN=...`)
-   to override at build time.
+   This must match the scheme portion of `AUTH0_REDIRECT_URL`. The matching
+   iOS entry lives in `ios/Runner/Info.plist` under `CFBundleURLSchemes`.
 
 ### Social logins
 
@@ -253,7 +254,7 @@ flutter build appbundle --release \
 
 ### Min/target SDK
 
-- `minSdk = 23` (Android 6.0 - required by `auth0_flutter`).
+- `minSdk = 23` (Android 6.0 - required by `flutter_appauth`).
 - `targetSdk = compileSdk = 35` (Android 15).
 - ProGuard / R8 enabled in release with rules in `android/app/proguard-rules.pro`.
 
@@ -274,7 +275,7 @@ flutter build ipa --release \
 
 In Xcode you should also:
 
-- Set the bundle identifier to `com.brackstechnologies.revomaket`.
+- Set the bundle identifier to `com.revosso.revomaket`.
 - Set the team for code signing.
 - Add capabilities: **Push Notifications**, **Background Modes** (Remote
   notifications, Background fetch), **Associated Domains** (universal links).

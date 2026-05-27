@@ -24,7 +24,7 @@ class EnvConfig {
       'AUTH0_DOMAIN': const String.fromEnvironment('AUTH0_DOMAIN'),
       'AUTH0_CLIENT_ID': const String.fromEnvironment('AUTH0_CLIENT_ID'),
       'AUTH0_AUDIENCE': const String.fromEnvironment('AUTH0_AUDIENCE'),
-      'AUTH0_SCHEME': const String.fromEnvironment('AUTH0_SCHEME'),
+      'AUTH0_REDIRECT_URL': const String.fromEnvironment('AUTH0_REDIRECT_URL'),
       'WEB_BASE_URL': const String.fromEnvironment('WEB_BASE_URL'),
       'FIREBASE_VAPID_KEY': const String.fromEnvironment('FIREBASE_VAPID_KEY'),
     };
@@ -38,13 +38,24 @@ class EnvConfig {
   }
 
   // ---------------------------------------------------------------------------
-  // Auth0
+  // Auth0 (via flutter_appauth - generic OIDC client)
   // ---------------------------------------------------------------------------
   static String get auth0Domain => _read('AUTH0_DOMAIN');
   static String get auth0ClientId => _read('AUTH0_CLIENT_ID');
   static String get auth0Audience => _read('AUTH0_AUDIENCE');
-  static String get auth0Scheme =>
-      _read('AUTH0_SCHEME', fallback: 'com.brackstechnologies.revomaket');
+
+  /// Full redirect URL registered in Auth0 -> Allowed Callback URLs.
+  /// Matches the Android `appAuthRedirectScheme` manifest placeholder and the
+  /// iOS `CFBundleURLSchemes` entry. Defaults to the convention used by
+  /// flutter_appauth examples.
+  static String get auth0RedirectUrl =>
+      _read('AUTH0_REDIRECT_URL',
+          fallback: 'com.revosso.revomaket:/oauthredirect');
+
+  /// OIDC issuer URL derived from the domain. The trailing slash is intentional
+  /// - Auth0 issues tokens with the slashed form.
+  static String get auth0Issuer =>
+      auth0Domain.isEmpty ? '' : 'https://$auth0Domain/';
 
   // ---------------------------------------------------------------------------
   // WebView

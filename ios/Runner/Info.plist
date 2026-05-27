@@ -94,11 +94,11 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.brackstechnologies.revomaket</string>
+			<string>com.revosso.revomaket</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>revomaket</string>
-				<string>com.brackstechnologies.revomaket</string>
+				<string>com.revosso.revomaket</string>
 			</array>
 		</dict>
 	</array>

@@ -81,20 +81,12 @@
                 <data android:scheme="https" android:host="www.revomaket.com" />
             </intent-filter>
 
-            <!-- Auth0 callback / logout intent filter -->
-            <intent-filter android:autoVerify="false">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:host="${auth0Domain}"
-                    android:pathPrefix="/android/${applicationId}/callback"
-                    android:scheme="https" />
-                <data
-                    android:host="${auth0Domain}"
-                    android:pathPrefix="/android/${applicationId}/callback"
-                    android:scheme="${auth0Scheme}" />
-            </intent-filter>
+            <!--
+              Auth0 OAuth callback intent-filter is provided by flutter_appauth's
+              bundled RedirectUriReceiverActivity. Its scheme is configured via
+              the `appAuthRedirectScheme` manifestPlaceholder in app/build.gradle.kts.
+              Do NOT add a duplicate intent-filter here - it will conflict.
+            -->
         </activity>
 
         <!-- Firebase Cloud Messaging default channel -->

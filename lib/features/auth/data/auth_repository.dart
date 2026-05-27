@@ -56,7 +56,8 @@ class AuthRepository {
 
   Future<void> logout() async {
     try {
-      await _authService.logout();
+      final stored = await _sessionManager.load();
+      await _authService.logout(idToken: stored?.idToken);
     } finally {
       await _sessionManager.clear();
     }

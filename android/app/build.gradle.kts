@@ -17,8 +17,8 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.brackstechnologies.revomaket"
-    compileSdk = 35
+    namespace = "com.revosso.revomaket"
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -32,15 +32,16 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.brackstechnologies.revomaket"
+        applicationId = "com.revosso.revomaket"
         minSdk = flutter.minSdkVersion
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // Required by auth0_flutter / flutter_inappwebview deep linking
-        manifestPlaceholders["auth0Domain"] = (project.findProperty("AUTH0_DOMAIN") as String?) ?: ""
-        manifestPlaceholders["auth0Scheme"] = "com.brackstechnologies.revomaket"
+        // Required by flutter_appauth: this scheme must match the scheme
+        // portion of AUTH0_REDIRECT_URL (e.g. com.revosso.revomaket:/oauthredirect)
+        // and the iOS CFBundleURLScheme entry in Info.plist.
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.revosso.revomaket"
 
         multiDexEnabled = true
     }

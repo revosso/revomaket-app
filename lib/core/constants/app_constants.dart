@@ -9,7 +9,7 @@ class AppConstants {
   // App identity
   // ---------------------------------------------------------------------------
   static const String appName = 'Revomaket';
-  static const String packageId = 'com.brackstechnologies.revomaket';
+  static const String packageId = 'com.revosso.revomaket';
   static const String supportEmail = 'support@revomaket.com';
 
   // ---------------------------------------------------------------------------
