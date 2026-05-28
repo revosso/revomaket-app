@@ -38,10 +38,11 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // Required by flutter_appauth: this scheme must match the scheme
-        // portion of AUTH0_REDIRECT_URL (e.g. com.revosso.revomaket:/oauthredirect)
-        // and the iOS CFBundleURLScheme entry in Info.plist.
-        manifestPlaceholders["appAuthRedirectScheme"] = "com.revosso.revomaket"
+        // Required by flutter_appauth / AppAuth Android SDK. Use += so Flutter's
+        // own placeholders (applicationName, etc.) are preserved.
+        manifestPlaceholders += mapOf(
+            "appAuthRedirectScheme" to "com.revosso.revomaket",
+        )
 
         multiDexEnabled = true
     }

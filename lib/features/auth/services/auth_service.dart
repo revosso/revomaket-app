@@ -36,6 +36,10 @@ class AuthService {
     }
 
     try {
+      AppLogger.i(
+        'Auth login: issuer=${EnvConfig.auth0Issuer} '
+        'redirect=${EnvConfig.auth0RedirectUrl}',
+      );
       final result = await _appAuth.authorizeAndExchangeCode(
         AuthorizationTokenRequest(
           EnvConfig.auth0ClientId,

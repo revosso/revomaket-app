@@ -27,6 +27,7 @@ dependencies:
   # Connectivity / network
   connectivity_plus: ^6.1.0
   internet_connection_checker_plus: ^2.5.2
+  http: ^1.2.2
 
   # External links / launching
   url_launcher: ^6.3.1

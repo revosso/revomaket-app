@@ -3,10 +3,9 @@
 -keep class io.flutter.plugin.** { *; }
 -keep class io.flutter.plugins.** { *; }
 
-# Auth0
--keep class com.auth0.** { *; }
--keep interface com.auth0.** { *; }
--keep class com.auth0.android.jwt.** { *; }
+# AppAuth / flutter_appauth (OAuth redirect + token exchange)
+-keep class net.openid.appauth.** { *; }
+-keep class androidx.browser.** { *; }
 
 # OkHttp / Okio (used by Auth0)
 -dontwarn okhttp3.**

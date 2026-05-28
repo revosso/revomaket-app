@@ -26,6 +26,10 @@ class EnvConfig {
       'AUTH0_AUDIENCE': const String.fromEnvironment('AUTH0_AUDIENCE'),
       'AUTH0_REDIRECT_URL': const String.fromEnvironment('AUTH0_REDIRECT_URL'),
       'WEB_BASE_URL': const String.fromEnvironment('WEB_BASE_URL'),
+      'WEBVIEW_SESSION_URL':
+          const String.fromEnvironment('WEBVIEW_SESSION_URL'),
+      'WEBVIEW_LOGOUT_URL':
+          const String.fromEnvironment('WEBVIEW_LOGOUT_URL'),
       'FIREBASE_VAPID_KEY': const String.fromEnvironment('FIREBASE_VAPID_KEY'),
     };
 
@@ -62,6 +66,20 @@ class EnvConfig {
   // ---------------------------------------------------------------------------
   static String get webBaseUrl =>
       _read('WEB_BASE_URL', fallback: 'https://revomaket.com');
+
+  /// nuvannapi endpoint that exchanges an Auth0 id_token for a server-side
+  /// opaque session token (`webview_session` HttpOnly cookie).
+  static String get webviewSessionUrl => _read(
+        'WEBVIEW_SESSION_URL',
+        fallback: 'https://api.revomaket.com/v1/webview/session',
+      );
+
+  /// nuvannapi endpoint that invalidates the WebView session and clears the
+  /// `webview_session` cookie.
+  static String get webviewLogoutUrl => _read(
+        'WEBVIEW_LOGOUT_URL',
+        fallback: 'https://api.revomaket.com/v1/webview/logout',
+      );
 
   // ---------------------------------------------------------------------------
   // Firebase (only used on web; mobile uses native config files)

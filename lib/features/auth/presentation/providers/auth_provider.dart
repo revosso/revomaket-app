@@ -5,6 +5,7 @@ import '../../../../core/errors/exceptions.dart';
 import '../../../../core/utils/app_logger.dart';
 import '../../data/auth_repository.dart';
 import '../../data/models/auth_session.dart';
+import '../../data/models/webview_session.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated, authenticating }
 
@@ -21,6 +22,7 @@ class AuthProvider extends ChangeNotifier {
 
   AuthStatus get status => _status;
   AuthSession? get session => _session;
+  WebviewSession? get webviewSession => _repository.webviewSession;
   String? get lastError => _lastError;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
   bool get isAuthenticating => _status == AuthStatus.authenticating;

@@ -42,6 +42,10 @@ class AppConstants {
   static const String kBiometricEnabled = 'auth.biometric_enabled';
   static const String kLastVisitedUrl = 'webview.last_url';
   static const String kFcmToken = 'push.fcm_token';
+  static const String kWebviewSessionToken = 'webview.session_token';
+  static const String kWebviewSessionCookieName = 'webview.cookie_name';
+  static const String kWebviewSessionCookieDomain = 'webview.cookie_domain';
+  static const String kWebviewSessionUser = 'webview.user';
 
   // ---------------------------------------------------------------------------
   // Notifications
