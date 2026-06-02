@@ -13,6 +13,20 @@ class AppStrings {
   static const String loginInProgress = 'Signing you in…';
   static const String loginFailed = 'We could not sign you in. Please try again.';
   static const String logoutCta = 'Sign out';
+  static const String biometricUnlockTitle = 'Unlock Revomaket';
+  static const String biometricUnlockSubtitle =
+      'Use your fingerprint or face to continue.';
+  static const String biometricUnlockReason =
+      'Authenticate to access Revomaket';
+  static const String biometricUnlockCta = 'Unlock';
+  static const String biometricSignInAgainCta = 'Sign in with your account';
+  static const String biometricEnableTitle = 'Enable biometric unlock?';
+  static const String biometricEnableMessage =
+      'Use your fingerprint or face to open the app faster next time.';
+  static const String biometricEnableCta = 'Enable';
+  static const String biometricNotNowCta = 'Not now';
+  static const String biometricLoginToggle =
+      'Unlock with fingerprint or face';
 
   // Offline
   static const String offlineTitle = 'You are offline';

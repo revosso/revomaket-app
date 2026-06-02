@@ -12,6 +12,7 @@ import '../../../../core/constants/app_strings.dart';
 import '../../../../services/connectivity_service.dart';
 import '../../../../shared/widgets/app_logo.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../auth/presentation/utils/biometric_flow.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -63,7 +64,16 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
 
-    final destination = auth.isAuthenticated ? AppRoutes.home : AppRoutes.login;
+    final String destination;
+    if (!auth.isAuthenticated) {
+      destination = AppRoutes.login;
+    } else {
+      final unlocked = await BiometricFlow.unlockIfRequired(context);
+      if (!mounted) return;
+      destination =
+          unlocked ? AppRoutes.home : AppRoutes.biometricUnlock;
+    }
+    if (!mounted) return;
     unawaited(Navigator.of(context).pushReplacementNamed(destination));
   }
 
