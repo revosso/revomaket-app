@@ -16,11 +16,25 @@ class AppLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      'assets/images/logo.png',
+    return Container(
       width: size,
       height: size,
-      errorBuilder: (_, __, ___) => _FallbackMark(size: size, color: color),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.12),
+            blurRadius: size * 0.30,
+            offset: Offset(0, size * 0.06),
+          ),
+        ],
+      ),
+      child: Image.asset(
+        'assets/images/logo.png',
+        width: size,
+        height: size,
+        errorBuilder: (_, __, ___) => _FallbackMark(size: size, color: color),
+      ),
     );
   }
 }
@@ -50,14 +64,21 @@ class _FallbackMark extends StatelessWidget {
           ),
         ],
       ),
-      alignment: Alignment.center,
-      child: Text(
-        'R',
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: size * 0.52,
-          letterSpacing: -1.5,
+      padding: EdgeInsets.all(size * 0.10),
+      child: Image.asset(
+        'assets/images/logo.png',
+        fit: BoxFit.contain,
+        // If even the embedded logo fails, render the letter mark.
+        errorBuilder: (_, __, ___) => Center(
+          child: Text(
+            'R',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: size * 0.52,
+              letterSpacing: -1.5,
+            ),
+          ),
         ),
       ),
     );

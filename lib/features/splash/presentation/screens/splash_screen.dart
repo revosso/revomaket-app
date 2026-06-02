@@ -32,12 +32,13 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 700),
     )..forward();
 
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    _scale = Tween<double>(begin: 0.92, end: 1.0)
-        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+    _scale = Tween<double>(begin: 0.88, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
@@ -70,8 +71,7 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       final unlocked = await BiometricFlow.unlockIfRequired(context);
       if (!mounted) return;
-      destination =
-          unlocked ? AppRoutes.home : AppRoutes.biometricUnlock;
+      destination = unlocked ? AppRoutes.home : AppRoutes.biometricUnlock;
     }
     if (!mounted) return;
     unawaited(Navigator.of(context).pushReplacementNamed(destination));
@@ -89,48 +89,101 @@ class _SplashScreenState extends State<SplashScreen>
       value: AppTheme.splashOverlay,
       child: Scaffold(
         backgroundColor: AppColors.splashBackground,
-        body: Center(
-          child: FadeTransition(
-            opacity: _fade,
-            child: ScaleTransition(
-              scale: _scale,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const AppLogo(size: 120),
-                  const SizedBox(height: 24),
-                  Text(
-                    AppStrings.appName,
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineMedium
-                        ?.copyWith(
-                          color: AppColors.textInverted,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.4,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    AppStrings.tagline,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white60,
-                        ),
-                  ),
-                  const SizedBox(height: 48),
-                  const SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.6,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(AppColors.accent),
-                    ),
-                  ),
-                ],
+        body: Stack(
+          children: [
+            // Subtle amber arc in top-right corner for brand personality
+            Positioned(
+              top: -80,
+              right: -80,
+              child: Container(
+                width: 260,
+                height: 260,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.accent.withValues(alpha: 0.08),
+                ),
               ),
             ),
-          ),
+            Positioned(
+              top: -40,
+              right: -40,
+              child: Container(
+                width: 160,
+                height: 160,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.accent.withValues(alpha: 0.10),
+                ),
+              ),
+            ),
+            // Navy arc in bottom-left
+            Positioned(
+              bottom: -60,
+              left: -60,
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primary.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
+
+            // Main content
+            Center(
+              child: FadeTransition(
+                opacity: _fade,
+                child: ScaleTransition(
+                  scale: _scale,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Logo
+                      const AppLogo(size: 110),
+                      const SizedBox(height: 28),
+
+                      // App name
+                      Text(
+                        AppStrings.appName,
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
+                            ?.copyWith(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.2,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+
+                      // "from Revosso" sub-brand
+                      Text(
+                        AppStrings.tagline,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                              letterSpacing: 0.3,
+                            ),
+                      ),
+                      const SizedBox(height: 56),
+
+                      // Amber progress indicator
+                      const SizedBox(
+                        width: 26,
+                        height: 26,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.6,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.accent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
