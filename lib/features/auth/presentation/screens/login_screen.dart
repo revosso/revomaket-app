@@ -8,11 +8,87 @@ import '../../../../config/app_routes.dart';
 import '../../../../config/app_theme.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../services/biometric_service.dart';
 import '../../../../shared/widgets/app_logo.dart';
 import '../providers/auth_provider.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  bool _biometricLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadBiometricPreference());
+  }
+
+  Future<void> _loadBiometricPreference() async {
+    final biometric = context.read<BiometricService>();
+    final available = await biometric.isAvailable();
+    final enabled = await biometric.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _biometricAvailable = available;
+      _biometricEnabled = enabled;
+      _biometricLoading = false;
+    });
+  }
+
+  Future<void> _onBiometricToggled(bool value) async {
+    await context.read<BiometricService>().setEnabled(enabled: value);
+    if (!mounted) return;
+    setState(() => _biometricEnabled = value);
+  }
+
+  Future<void> _maybeOfferBiometricEnrollment() async {
+    final biometric = context.read<BiometricService>();
+    if (!await biometric.isAvailable() || await biometric.isEnabled()) {
+      return;
+    }
+
+    if (!mounted) return;
+    final enable = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(AppStrings.biometricEnableTitle),
+        content: const Text(AppStrings.biometricEnableMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text(AppStrings.biometricNotNowCta),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text(AppStrings.biometricEnableCta),
+          ),
+        ],
+      ),
+    );
+
+    if (enable == true) {
+      await biometric.setEnabled(enabled: true);
+      if (mounted) setState(() => _biometricEnabled = true);
+    }
+  }
+
+  Future<void> _onLoginPressed(AuthProvider auth) async {
+    final success = await auth.login();
+    if (!mounted) return;
+    if (!success) return;
+
+    await _maybeOfferBiometricEnrollment();
+    if (!mounted) return;
+
+    unawaited(Navigator.of(context).pushReplacementNamed(AppRoutes.home));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,12 +133,28 @@ class LoginScreen extends StatelessWidget {
                           _ErrorBanner(message: auth.lastError!),
                           const SizedBox(height: 16),
                         ],
+                        if (_biometricAvailable && !_biometricLoading) ...[
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              AppStrings.biometricLoginToggle,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(color: Colors.white70),
+                            ),
+                            value: _biometricEnabled,
+                            activeThumbColor: AppColors.primary,
+                            onChanged: loading
+                                ? null
+                                : (value) => unawaited(_onBiometricToggled(value)),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         FilledButton(
                           onPressed: loading
                               ? null
-                              : () {
-                                  unawaited(_onLoginPressed(context, auth));
-                                },
+                              : () => unawaited(_onLoginPressed(auth)),
                           child: loading
                               ? const SizedBox(
                                   height: 22,
@@ -81,9 +173,10 @@ class LoginScreen extends StatelessWidget {
                           Text(
                             'Auth0 not configured - proceeding without sign-in.',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.white54,
-                                ),
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.white54,
+                                    ),
                           )
                         else
                           Text(
@@ -91,9 +184,10 @@ class LoginScreen extends StatelessWidget {
                                 ? AppStrings.loginInProgress
                                 : 'Secured by Auth0',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.white54,
-                                ),
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.white54,
+                                    ),
                           ),
                       ],
                     );
@@ -106,14 +200,6 @@ class LoginScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _onLoginPressed(BuildContext context, AuthProvider auth) async {
-    final success = await auth.login();
-    if (!context.mounted) return;
-    if (success) {
-      unawaited(Navigator.of(context).pushReplacementNamed(AppRoutes.home));
-    }
   }
 }
 
