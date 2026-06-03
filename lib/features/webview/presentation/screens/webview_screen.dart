@@ -52,7 +52,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   double _progress = 0;
   bool _firstLoadComplete = false;
+  bool _authRefreshPinged = false;
+  bool _refreshSessionInFlight = false;
+  DateTime? _lastRefreshSessionAt;
   Future<void>? _cookieInjection;
+
+  static const _refreshSessionCooldown = Duration(seconds: 10);
 
   @override
   void initState() {
@@ -124,7 +129,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     // Same-origin HTTPS - keep inside the WebView.
     if (UrlUtils.isInternalUrl(uri)) {
-      if (!UrlUtils.isSecureHttp(uri)) {
+      final base = Uri.parse(EnvConfig.webBaseUrl);
+      final allowLocalHttp = base.scheme == 'http' &&
+          uri.scheme == 'http' &&
+          uri.host == base.host &&
+          uri.port == base.port;
+      if (!UrlUtils.isSecureHttp(uri) && !allowLocalHttp) {
         AppLogger.w('Refusing non-HTTPS navigation: $uri');
         return false;
       }
@@ -174,33 +184,75 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   /// Called by the `refreshSession` JS handler.
   ///
-  /// Re-injects a fresh webview session cookie, then tells the SPA to
-  /// re-load the user profile via `window.__revomaket_refresh_auth`.
+  /// Re-mints the nuvannapi session from the native Auth0 id_token, injects
+  /// the new cookie, then tells the SPA to re-load the user profile.
   Future<void> _handleRefreshSession() async {
+    if (_refreshSessionInFlight) {
+      AppLogger.i('[WebView] refreshSession skipped — already in flight');
+      return;
+    }
+    final last = _lastRefreshSessionAt;
+    if (last != null &&
+        DateTime.now().difference(last) < _refreshSessionCooldown) {
+      final remaining = _refreshSessionCooldown - DateTime.now().difference(last);
+      AppLogger.i(
+        '[WebView] refreshSession skipped — cooldown (${remaining.inMilliseconds}ms left)',
+      );
+      return;
+    }
+
+    _refreshSessionInFlight = true;
+    _lastRefreshSessionAt = DateTime.now();
     AppLogger.i('[WebView] refreshSession requested by SPA');
     try {
-      // Re-mint the session from the native AuthProvider (which may already
-      // have a valid token from its in-memory state, or will re-login if not).
+      if (mounted) {
+        final reminted = await context.read<AuthProvider>().remintWebviewSession();
+        if (reminted == null) {
+          AppLogger.w(
+            '[WebView] refreshSession: no native auth session to remint',
+          );
+          return;
+        }
+        AppLogger.i(
+          '[WebView] refreshSession reminted token=${_tokenPreview(reminted.sessionToken)} '
+          'cookieDomain=${reminted.cookieDomain}',
+        );
+      }
       await _injectCookies();
+      // Give the platform cookie jar time to commit before credentialed fetch.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      AppLogger.i('[WebView] refreshSession pinging __revomaket_refresh_auth');
+      await _pingAuthRefresh();
+      AppLogger.i('[WebView] refreshSession complete');
     } catch (e, s) {
-      AppLogger.w('[WebView] refreshSession cookie re-inject failed', e, s);
+      AppLogger.w('[WebView] refreshSession failed', e, s);
+    } finally {
+      _refreshSessionInFlight = false;
     }
-    await _pingAuthRefresh();
   }
 
   /// Calls `window.__revomaket_refresh_auth()` in the SPA if the function is
   /// present, triggering a profile re-fetch without a full page reload.
   Future<void> _pingAuthRefresh() async {
     final controller = _controller;
-    if (controller == null) return;
+    if (controller == null) {
+      AppLogger.w('[WebView] _pingAuthRefresh skipped — no controller');
+      return;
+    }
     try {
       await controller.evaluateJavascript(
         source:
-            'if (typeof window.__revomaket_refresh_auth === "function") { window.__revomaket_refresh_auth(); }',
+            'if (typeof window.__revomaket_refresh_auth === "function") { window.__revomaket_refresh_auth(); "ok"; } else { "missing"; }',
       );
+      AppLogger.i('[WebView] _pingAuthRefresh evaluateJavascript sent');
     } catch (e, s) {
       AppLogger.w('[WebView] _pingAuthRefresh evaluateJavascript failed', e, s);
     }
+  }
+
+  static String _tokenPreview(String token) {
+    if (token.length <= 8) return '***';
+    return '${token.substring(0, 8)}…';
   }
 
   /// Reads the current [WebviewSession] from [AuthProvider] (if any) and
@@ -220,6 +272,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final url = WebUri(EnvConfig.webBaseUrl);
     final webHost = Uri.parse(EnvConfig.webBaseUrl).host;
     final isLocalDev = EnvConfig.webBaseUrl.startsWith('http://');
+    final cookieName = session.cookieName.isNotEmpty
+        ? session.cookieName
+        : 'webview_session';
 
     final String? domain =
         isLocalDev ? null : _effectiveCookieDomain(webHost, session);
@@ -227,12 +282,18 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final sessionSameSite = isLocalDev
         ? HTTPCookieSameSitePolicy.LAX
         : HTTPCookieSameSitePolicy.NONE;
+    final apiOrigin = EnvConfig.apiOrigin;
+    final apiUrl = apiOrigin.isNotEmpty ? WebUri(apiOrigin) : null;
+
+    // Drop stale values so the WebView does not keep sending revoked tokens.
+    await cm.deleteCookie(url: url, name: cookieName, domain: domain);
+    if (apiUrl != null) {
+      await cm.deleteCookie(url: apiUrl, name: cookieName);
+    }
 
     await cm.setCookie(
       url: url,
-      name: session.cookieName.isNotEmpty
-          ? session.cookieName
-          : 'webview_session',
+      name: cookieName,
       value: session.sessionToken,
       domain: domain,
       path: '/',
@@ -240,6 +301,20 @@ class _WebViewScreenState extends State<WebViewScreen> {
       isHttpOnly: true,
       sameSite: sessionSameSite,
     );
+
+    // Host-only cookie on the API origin — required on Android WebView so
+    // `fetch('https://dev-api…', { credentials: 'include' })` sends the token.
+    if (apiUrl != null && !isLocalDev) {
+      await cm.setCookie(
+        url: apiUrl,
+        name: cookieName,
+        value: session.sessionToken,
+        path: '/',
+        isSecure: true,
+        isHttpOnly: true,
+        sameSite: HTTPCookieSameSitePolicy.NONE,
+      );
+    }
 
     await cm.setCookie(
       url: url,
@@ -250,6 +325,11 @@ class _WebViewScreenState extends State<WebViewScreen> {
       isSecure: secure,
       isHttpOnly: false,
       sameSite: HTTPCookieSameSitePolicy.LAX,
+    );
+
+    AppLogger.i(
+      '[WebView] injected $cookieName token=${_tokenPreview(session.sessionToken)} '
+      'host=$webHost domain=$domain apiOrigin=$apiOrigin sentinel=revomaket_auth_token',
     );
   }
 
@@ -426,6 +506,30 @@ class _WebViewScreenState extends State<WebViewScreen> {
             await _handleRefreshSession();
           },
         );
+
+        // SPA → Flutter: read Auth0 access token for Bearer API auth (more
+        // reliable than cross-origin cookies on Android WebView).
+        controller.addJavaScriptHandler(
+          handlerName: 'getAccessToken',
+          callback: (_) async {
+            if (!mounted) return null;
+            try {
+              final token =
+                  await context.read<AuthProvider>().ensureAccessToken();
+              if (token == null || token.isEmpty) {
+                AppLogger.w('[WebView] getAccessToken — no native session');
+                return null;
+              }
+              AppLogger.i(
+                '[WebView] getAccessToken OK preview=${_tokenPreview(token)}',
+              );
+              return token;
+            } catch (e, s) {
+              AppLogger.w('[WebView] getAccessToken failed', e, s);
+              return null;
+            }
+          },
+        );
       },
       onLoadStart: (_, url) {
         setState(() => _progress = 0.05);
@@ -437,11 +541,15 @@ class _WebViewScreenState extends State<WebViewScreen> {
           _progress = 1.0;
           _firstLoadComplete = true;
         });
-        // After the SPA finishes loading, confirm the refresh callback is
-        // registered and trigger it so the SPA re-validates the session.
-        // This closes the race window where the SPA's React tree mounts
-        // before the cookie is readable.
-        unawaited(_pingAuthRefresh());
+        AppLogger.i('[WebView] onLoadStop url=$url firstLoad=$_authRefreshPinged');
+        // Ping once after the first full page load so the SPA validates the
+        // injected cookie. Client-side navigations must not re-trigger this
+        // or a failing profile fetch can loop with refreshSession.
+        if (!_authRefreshPinged) {
+          _authRefreshPinged = true;
+          AppLogger.i('[WebView] onLoadStop → initial _pingAuthRefresh');
+          unawaited(_pingAuthRefresh());
+        }
       },
       onReceivedError: (_, request, error) async {
         AppLogger.w(
@@ -470,7 +578,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
         );
       },
       onConsoleMessage: (_, message) {
-        AppLogger.d('JS: ${message.messageLevel} ${message.message}');
+        final text = message.message;
+        if (text.contains('[RevomaketWebView]')) {
+          AppLogger.i('JS: $text');
+        } else {
+          AppLogger.d('JS: ${message.messageLevel} $text');
+        }
       },
     );
   }

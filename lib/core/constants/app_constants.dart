@@ -23,6 +23,11 @@ class AppConstants {
     'app.revomaket.com',
     'api.revomaket.com',
     'cdn.revomaket.com',
+    // Local web dev hosts.
+    'localhost',
+    '127.0.0.1',
+    '192.168.1.10',
+    '172.19.0.1',
   ];
 
   // ---------------------------------------------------------------------------
