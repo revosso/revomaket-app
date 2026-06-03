@@ -172,6 +172,37 @@ class _WebViewScreenState extends State<WebViewScreen> {
         .pushNamedAndRemoveUntil(AppRoutes.login, (_) => false));
   }
 
+  /// Called by the `refreshSession` JS handler.
+  ///
+  /// Re-injects a fresh webview session cookie, then tells the SPA to
+  /// re-load the user profile via `window.__revomaket_refresh_auth`.
+  Future<void> _handleRefreshSession() async {
+    AppLogger.i('[WebView] refreshSession requested by SPA');
+    try {
+      // Re-mint the session from the native AuthProvider (which may already
+      // have a valid token from its in-memory state, or will re-login if not).
+      await _injectCookies();
+    } catch (e, s) {
+      AppLogger.w('[WebView] refreshSession cookie re-inject failed', e, s);
+    }
+    await _pingAuthRefresh();
+  }
+
+  /// Calls `window.__revomaket_refresh_auth()` in the SPA if the function is
+  /// present, triggering a profile re-fetch without a full page reload.
+  Future<void> _pingAuthRefresh() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller.evaluateJavascript(
+        source:
+            'if (typeof window.__revomaket_refresh_auth === "function") { window.__revomaket_refresh_auth(); }',
+      );
+    } catch (e, s) {
+      AppLogger.w('[WebView] _pingAuthRefresh evaluateJavascript failed', e, s);
+    }
+  }
+
   /// Reads the current [WebviewSession] from [AuthProvider] (if any) and
   /// writes the `webview_session` HttpOnly cookie plus a small JS-readable
   /// sentinel so the SPA can skip its own Authorization-header injection.
@@ -378,12 +409,21 @@ class _WebViewScreenState extends State<WebViewScreen> {
       ),
       onWebViewCreated: (controller) {
         _controller = controller;
-        // The SPA triggers logout (and gets sent back to LoginScreen) via:
-        //   window.flutter_inappwebview.callHandler('logout');
+
+        // SPA → Flutter: user tapped sign-out inside the web UI.
         controller.addJavaScriptHandler(
           handlerName: 'logout',
           callback: (_) async {
             await _handleLogout();
+          },
+        );
+
+        // SPA → Flutter: profile load failed; mint a fresh webview_session
+        // cookie and call window.__revomaket_refresh_auth() so the SPA retries.
+        controller.addJavaScriptHandler(
+          handlerName: 'refreshSession',
+          callback: (_) async {
+            await _handleRefreshSession();
           },
         );
       },
@@ -397,6 +437,11 @@ class _WebViewScreenState extends State<WebViewScreen> {
           _progress = 1.0;
           _firstLoadComplete = true;
         });
+        // After the SPA finishes loading, confirm the refresh callback is
+        // registered and trigger it so the SPA re-validates the session.
+        // This closes the race window where the SPA's React tree mounts
+        // before the cookie is readable.
+        unawaited(_pingAuthRefresh());
       },
       onReceivedError: (_, request, error) async {
         AppLogger.w(

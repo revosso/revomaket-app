@@ -74,13 +74,13 @@ class AppTheme {
     );
   }
 
-  /// Status-bar / navigation-bar styling that matches the splash background.
+  /// Status-bar / navigation-bar styling for the white splash / login screens.
   static const SystemUiOverlayStyle splashOverlay = SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    statusBarBrightness: Brightness.dark,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
     systemNavigationBarColor: AppColors.splashBackground,
-    systemNavigationBarIconBrightness: Brightness.light,
+    systemNavigationBarIconBrightness: Brightness.dark,
   );
 
   /// Overlay style used by the WebView (light surface).

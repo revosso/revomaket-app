@@ -50,9 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _maybeOfferBiometricEnrollment() async {
     final biometric = context.read<BiometricService>();
-    if (!await biometric.isAvailable() || await biometric.isEnabled()) {
-      return;
-    }
+    if (!await biometric.isAvailable() || await biometric.isEnabled()) return;
 
     if (!mounted) return;
     final enable = await showDialog<bool>(
@@ -96,107 +94,186 @@ class _LoginScreenState extends State<LoginScreen> {
       value: AppTheme.splashOverlay,
       child: Scaffold(
         backgroundColor: AppColors.splashBackground,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Spacer(),
-                const AppLogo(size: 96),
-                const SizedBox(height: 32),
-                Text(
-                  AppStrings.loginTitle,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: AppColors.textInverted,
-                        fontWeight: FontWeight.w700,
-                      ),
+        body: Stack(
+          children: [
+            // Amber arc — top right
+            Positioned(
+              top: -90,
+              right: -90,
+              child: Container(
+                width: 280,
+                height: 280,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.accent.withValues(alpha: 0.09),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  AppStrings.loginSubtitle,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white70,
-                        height: 1.5,
-                      ),
-                ),
-                const Spacer(flex: 2),
-                Consumer<AuthProvider>(
-                  builder: (context, auth, _) {
-                    final loading = auth.isAuthenticating;
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (auth.lastError != null) ...[
-                          _ErrorBanner(message: auth.lastError!),
-                          const SizedBox(height: 16),
-                        ],
-                        if (_biometricAvailable && !_biometricLoading) ...[
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                              AppStrings.biometricLoginToggle,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(color: Colors.white70),
-                            ),
-                            value: _biometricEnabled,
-                            activeThumbColor: AppColors.primary,
-                            onChanged: loading
-                                ? null
-                                : (value) => unawaited(_onBiometricToggled(value)),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        FilledButton(
-                          onPressed: loading
-                              ? null
-                              : () => unawaited(_onLoginPressed(auth)),
-                          child: loading
-                              ? const SizedBox(
-                                  height: 22,
-                                  width: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.4,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.textOnPrimary,
-                                    ),
-                                  ),
-                                )
-                              : const Text(AppStrings.loginCta),
-                        ),
-                        const SizedBox(height: 16),
-                        if (!auth.authConfigured)
-                          Text(
-                            'Auth0 not configured - proceeding without sign-in.',
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.white54,
-                                    ),
-                          )
-                        else
-                          Text(
-                            loading
-                                ? AppStrings.loginInProgress
-                                : 'Secured by Auth0',
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.white54,
-                                    ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 24),
-              ],
+              ),
             ),
-          ),
+            Positioned(
+              top: -45,
+              right: -45,
+              child: Container(
+                width: 170,
+                height: 170,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.accent.withValues(alpha: 0.11),
+                ),
+              ),
+            ),
+            // Navy arc — bottom left
+            Positioned(
+              bottom: -70,
+              left: -70,
+              child: Container(
+                width: 220,
+                height: 220,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primary.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
+
+            SafeArea(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Spacer(),
+
+                    // Logo + brand
+                    Center(child: const AppLogo(size: 88)),
+                    const SizedBox(height: 28),
+                    Text(
+                      AppStrings.loginTitle,
+                      textAlign: TextAlign.center,
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      AppStrings.loginSubtitle,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                            height: 1.5,
+                          ),
+                    ),
+
+                    const Spacer(flex: 2),
+
+                    Consumer<AuthProvider>(
+                      builder: (context, auth, _) {
+                        final loading = auth.isAuthenticating;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (auth.lastError != null) ...[
+                              _ErrorBanner(message: auth.lastError!),
+                              const SizedBox(height: 16),
+                            ],
+                            if (_biometricAvailable && !_biometricLoading) ...[
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  AppStrings.biometricLoginToggle,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                          color: AppColors.textSecondary),
+                                ),
+                                value: _biometricEnabled,
+                                activeColor: AppColors.accent,
+                                onChanged: loading
+                                    ? null
+                                    : (v) =>
+                                        unawaited(_onBiometricToggled(v)),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+
+                            // Amber CTA button
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.accent,
+                                foregroundColor: AppColors.textOnAccent,
+                                minimumSize: const Size.fromHeight(56),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              onPressed: loading
+                                  ? null
+                                  : () => unawaited(_onLoginPressed(auth)),
+                              child: loading
+                                  ? const SizedBox(
+                                      height: 22,
+                                      width: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.4,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                          AppColors.primary,
+                                        ),
+                                      ),
+                                    )
+                                  : const Text(AppStrings.loginCta),
+                            ),
+
+                            const SizedBox(height: 16),
+                            if (!auth.authConfigured)
+                              Text(
+                                'Auth0 not configured — proceeding without sign-in.',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: AppColors.textMuted),
+                              )
+                            else
+                              Text(
+                                loading
+                                    ? AppStrings.loginInProgress
+                                    : 'Secured by Auth0',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: AppColors.textMuted),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Sub-brand footer
+                    Text(
+                      AppStrings.tagline,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textMuted,
+                            letterSpacing: 0.2,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -212,9 +289,9 @@ class _ErrorBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.12),
+        color: AppColors.error.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -223,7 +300,10 @@ class _ErrorBanner extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(color: Colors.white, height: 1.4),
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                height: 1.4,
+              ),
             ),
           ),
         ],

@@ -3,7 +3,7 @@ class AppStrings {
 
   // App
   static const String appName = 'Revomaket';
-  static const String tagline = 'Your marketplace, in your pocket.';
+  static const String tagline = 'from Revosso';
 
   // Auth
   static const String loginTitle = 'Welcome to Revomaket';

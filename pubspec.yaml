@@ -2,7 +2,7 @@ name: revomaket_app
 description: "Revomaket - Official mobile app for revomaket.com."
 publish_to: 'none'
 
-version: 1.0.0+4
+version: 1.0.0+6
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -81,15 +81,15 @@ flutter:
 # Native splash screen (run: dart run flutter_native_splash:create)
 # ---------------------------------------------------------------------------
 flutter_native_splash:
-  color: "#0F172A"
-  color_dark: "#0F172A"
+  color: "#FFFFFF"
+  color_dark: "#FFFFFF"
   image: assets/images/splash_logo.png
   image_dark: assets/images/splash_logo.png
   android_12:
     image: assets/images/splash_logo.png
-    icon_background_color: "#0F172A"
+    icon_background_color: "#FFFFFF"
     image_dark: assets/images/splash_logo.png
-    icon_background_color_dark: "#0F172A"
+    icon_background_color_dark: "#FFFFFF"
   android: true
   ios: true
   fullscreen: false
