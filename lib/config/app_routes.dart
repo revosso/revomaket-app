@@ -19,7 +19,11 @@ class AppRoutes {
   static Map<String, WidgetBuilder> get routes => {
         splash: (_) => const SplashScreen(),
         login: (_) => const LoginScreen(),
-        biometricUnlock: (_) => const BiometricUnlockScreen(),
+        biometricUnlock: (context) {
+          final resumeMode =
+              ModalRoute.of(context)?.settings.arguments == true;
+          return BiometricUnlockScreen(resumeMode: resumeMode);
+        },
         home: (_) => const WebViewScreen(),
         offline: (_) => const OfflineScreen(),
       };

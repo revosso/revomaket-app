@@ -163,12 +163,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
 
   /// Invoked by the SPA via `flutter_inappwebview.callHandler('logout')`.
-  /// Clears both the Auth0 session and all WebView cookies, then sends the
-  /// user back to the login screen.
+  /// Clears the native Auth0 session and WebView cookies locally, then sends
+  /// the user to the login screen (no Auth0 browser logout page).
   Future<void> _handleLogout() async {
     AppLogger.i('[WebView] logout signalled by web app');
     try {
-      await context.read<AuthProvider>().logout();
+      await context.read<AuthProvider>().logout(endIdpSession: false);
     } catch (e, s) {
       AppLogger.w('[WebView] auth logout failed (continuing)', e, s);
     }

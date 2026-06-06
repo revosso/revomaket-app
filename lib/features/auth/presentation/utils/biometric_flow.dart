@@ -18,9 +18,19 @@ class BiometricFlow {
     final biometric = context.read<BiometricService>();
     if (!await biometric.isEnabled()) return true;
 
-    return biometric.authenticate(
+    final result = await biometric.authenticate(
       reason: AppStrings.biometricUnlockReason,
     );
+    return result == BiometricAuthResult.success;
+  }
+
+  /// Whether biometric unlock should run after bootstrap.
+  static Future<bool> shouldShowLockScreen(BuildContext context) async {
+    final auth = context.read<AuthProvider>();
+    if (!auth.isAuthenticated) return false;
+
+    final biometric = context.read<BiometricService>();
+    return biometric.isEnabled();
   }
 
   /// Whether a resume-time unlock prompt should run for the current route.

@@ -64,10 +64,12 @@ class AuthRepository {
     return session;
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool endIdpSession = false}) async {
     try {
-      final stored = await _sessionManager.load();
-      await _authService.logout(idToken: stored?.idToken);
+      if (endIdpSession) {
+        final stored = await _sessionManager.load();
+        await _authService.logout(idToken: stored?.idToken, endIdpSession: true);
+      }
     } finally {
       final webview = _webviewSession ?? await _webviewSessionStorage.load();
       if (webview != null) {

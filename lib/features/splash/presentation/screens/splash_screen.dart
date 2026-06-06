@@ -68,10 +68,10 @@ class _SplashScreenState extends State<SplashScreen>
     final String destination;
     if (!auth.isAuthenticated) {
       destination = AppRoutes.login;
+    } else if (await BiometricFlow.shouldShowLockScreen(context)) {
+      destination = AppRoutes.biometricUnlock;
     } else {
-      final unlocked = await BiometricFlow.unlockIfRequired(context);
-      if (!mounted) return;
-      destination = unlocked ? AppRoutes.home : AppRoutes.biometricUnlock;
+      destination = AppRoutes.home;
     }
     if (!mounted) return;
     unawaited(Navigator.of(context).pushReplacementNamed(destination));

@@ -43,9 +43,20 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _onBiometricToggled(bool value) async {
-    await context.read<BiometricService>().setEnabled(enabled: value);
+    final biometric = context.read<BiometricService>();
+
+    if (value) {
+      final enabled = await biometric.verifyAndEnable(
+        reason: AppStrings.biometricEnableReason,
+      );
+      if (!mounted) return;
+      setState(() => _biometricEnabled = enabled);
+      return;
+    }
+
+    await biometric.setEnabled(enabled: false);
     if (!mounted) return;
-    setState(() => _biometricEnabled = value);
+    setState(() => _biometricEnabled = false);
   }
 
   Future<void> _maybeOfferBiometricEnrollment() async {
@@ -72,8 +83,10 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (enable == true) {
-      await biometric.setEnabled(enabled: true);
-      if (mounted) setState(() => _biometricEnabled = true);
+      final enabled = await biometric.verifyAndEnable(
+        reason: AppStrings.biometricEnableReason,
+      );
+      if (mounted) setState(() => _biometricEnabled = enabled);
     }
   }
 
