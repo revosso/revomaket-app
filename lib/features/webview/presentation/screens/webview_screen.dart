@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,7 +8,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../config/app_routes.dart';
-import '../../../../config/app_theme.dart';
 import '../../../../config/env_config.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
@@ -18,8 +18,14 @@ import '../../../../services/deep_link_service.dart';
 import '../../../../services/url_launcher_service.dart';
 import '../../../auth/data/models/webview_session.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../domain/webview_shell_config.dart';
+import '../../services/webview_chrome_injection.dart';
+import '../../services/webview_vendor_access_service.dart';
 import '../widgets/exit_confirmation_dialog.dart';
 import '../widgets/loading_progress_bar.dart';
+import '../widgets/webview_native_app_bar.dart';
+import '../widgets/webview_native_bottom_nav.dart';
+import '../widgets/webview_search_sheet.dart';
 
 /// Full-screen WebView that wraps `https://revomaket.com/`.
 ///
@@ -56,8 +62,19 @@ class _WebViewScreenState extends State<WebViewScreen> {
   bool _refreshSessionInFlight = false;
   DateTime? _lastRefreshSessionAt;
   Future<void>? _cookieInjection;
+  String _currentPath = '/';
+  bool _sellerSession = false;
+  bool _canAccessVendor = false;
+  String _activeLanguageCode = 'en';
+  final WebviewVendorAccessService _vendorAccessService =
+      WebviewVendorAccessService();
 
   static const _refreshSessionCooldown = Duration(seconds: 10);
+
+  WebviewRouteState get _routeState => WebviewShellConfig.fromPath(
+        _currentPath,
+        sellerSession: _sellerSession,
+      );
 
   @override
   void initState() {
@@ -153,13 +170,200 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
 
   Future<bool> _onBackPressed() async {
+    final route = _routeState;
+    if (WebviewShellConfig.showMarketplaceBack(route.path, route.role)) {
+      await _navigateTo('/');
+      return false;
+    }
+
     final controller = _controller;
     if (controller != null && await controller.canGoBack()) {
       await controller.goBack();
       return false;
     }
+
+    // SPA client-side routes (e.g. /vendor/settings) often skip WebView history.
+    if (WebviewShellConfig.fallsBackToMarketplaceHome(route.role)) {
+      await _navigateTo('/');
+      return false;
+    }
+
     if (!mounted) return true;
     return ExitConfirmationDialog.show(context);
+  }
+
+  Future<void> _navigateTo(String location) async {
+    final controller = _controller;
+    if (controller == null) return;
+
+    final uri = Uri.parse(location.startsWith('/') ? location : '/$location');
+    final normalizedPath = WebviewShellConfig.fromPath(uri.path).path;
+    final target = uri.hasQuery ? '$normalizedPath?${uri.query}' : normalizedPath;
+
+    if (_currentPath == normalizedPath &&
+        !uri.hasQuery &&
+        _locationMatchesCurrent(uri)) {
+      return;
+    }
+
+    final escaped = target.replaceAll('\\', r'\\').replaceAll("'", r"\'");
+    try {
+      await controller.evaluateJavascript(
+        source: '''
+(function (loc) {
+  var target = loc.startsWith('/') ? loc : '/' + loc;
+  var current = window.location.pathname + window.location.search;
+  if (current === target) return;
+  window.history.pushState(null, '', target);
+  window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+})('$escaped');
+''',
+      );
+    } catch (e, s) {
+      AppLogger.w('[WebView] SPA navigate failed; loading URL', e, s);
+      final base = Uri.parse(EnvConfig.webBaseUrl);
+      await controller.loadUrl(
+        urlRequest: URLRequest(url: WebUri.uri(base.replace(
+          path: normalizedPath,
+          query: uri.hasQuery ? uri.query : null,
+        ))),
+      );
+    }
+  }
+
+  bool _locationMatchesCurrent(Uri uri) {
+    // Path-only navigation; query changes always re-navigate.
+    return !uri.hasQuery;
+  }
+
+  Future<void> _navigateToPath(String path) => _navigateTo(path);
+
+  Future<void> _openSearch() async {
+    if (!mounted) return;
+    final query = await WebviewSearchSheet.show(context);
+    if (query == null || !mounted) return;
+    if (query.isEmpty) {
+      await _navigateTo('/shop');
+      return;
+    }
+    final encoded = Uri.encodeQueryComponent(query);
+    await _navigateTo('/shop?q=$encoded');
+  }
+
+  Future<void> _setLanguage(String code) async {
+    final controller = _controller;
+    if (controller == null) return;
+    if (!mounted) return;
+    setState(() => _activeLanguageCode = code);
+    try {
+      await controller.evaluateJavascript(
+        source: WebviewChromeInjection.setLanguageScript(code),
+      );
+    } catch (e, s) {
+      AppLogger.w('[WebView] setLanguage failed', e, s);
+    }
+  }
+
+  Future<void> _syncLanguageFromController() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final result = await controller.evaluateJavascript(
+        source: WebviewChromeInjection.readLanguageScript,
+      );
+      final code = result?.toString();
+      if (code != null && code.isNotEmpty && mounted) {
+        setState(() => _activeLanguageCode = code);
+      }
+    } catch (e, s) {
+      AppLogger.w('[WebView] language sync failed', e, s);
+    }
+  }
+
+  String? _userInitial() {
+    final auth = context.read<AuthProvider>();
+    final sessionUser = auth.session?.user;
+    final webUser = auth.webviewSession?.user;
+    final name = sessionUser?.name ??
+        webUser?['name'] as String? ??
+        sessionUser?.email ??
+        webUser?['email'] as String?;
+    if (name == null || name.isEmpty) return null;
+    return name.characters.first.toUpperCase();
+  }
+
+  bool _showDashboardSwitcher(AuthProvider auth) {
+    if (!auth.isAuthenticated) return false;
+    return _canAccessVendor ||
+        _routeState.role != WebviewShellRole.buyer ||
+        _sellerSession;
+  }
+
+  Future<void> _syncVendorAccessFromController() async {
+    if (!mounted) return;
+    if (!context.read<AuthProvider>().isAuthenticated) {
+      if (_canAccessVendor) setState(() => _canAccessVendor = false);
+      return;
+    }
+
+    final token = await context.read<AuthProvider>().ensureAccessToken();
+    final canAccess = await _vendorAccessService.canAccessVendorDashboard(
+      accessToken: token,
+    );
+    if (!mounted || canAccess == _canAccessVendor) return;
+    setState(() => _canAccessVendor = canAccess);
+  }
+
+  void _scheduleVendorAccessSync() {
+    unawaited(_runVendorAccessRetries());
+  }
+
+  Future<void> _runVendorAccessRetries() async {
+    const delays = [
+      Duration.zero,
+      Duration(seconds: 2),
+      Duration(seconds: 5),
+    ];
+    for (final delay in delays) {
+      if (!mounted) return;
+      if (delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+      }
+      if (!mounted) return;
+      await _syncVendorAccessFromController();
+      if (_canAccessVendor) return;
+    }
+  }
+
+  void _applyRoutePayload(Object? payload) {
+    if (payload is! Map) return;
+    final path = payload['path']?.toString();
+    if (path == null) return;
+    final sellerSession = payload['sellerSession'] == true;
+    if (!mounted) return;
+    setState(() {
+      _currentPath = WebviewShellConfig.fromPath(path).path;
+      _sellerSession = sellerSession;
+    });
+  }
+
+  Future<void> _syncRouteFromController() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final url = await controller.getUrl();
+      if (url == null || !mounted) return;
+      setState(() {
+        _currentPath = WebviewShellConfig.fromPath(url.path).path;
+      });
+      await controller.evaluateJavascript(
+        source: WebviewChromeInjection.bootstrapScript,
+      );
+      await _syncLanguageFromController();
+      await _syncVendorAccessFromController();
+    } catch (e, s) {
+      AppLogger.w('[WebView] route sync failed', e, s);
+    }
   }
 
   /// Invoked by the SPA via `flutter_inappwebview.callHandler('logout')`.
@@ -374,8 +578,17 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final route = _routeState;
+    final auth = context.watch<AuthProvider>();
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: AppTheme.contentOverlay,
+      value: const SystemUiOverlayStyle(
+        statusBarColor: AppColors.primary,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarColor: AppColors.surface,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
       child: PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, _) async {
@@ -386,57 +599,62 @@ class _WebViewScreenState extends State<WebViewScreen> {
           }
         },
         child: Scaffold(
-          body: SafeArea(
-            top: true,
-            bottom: true,
-            child: FutureBuilder<void>(
-              // Block the WebView until the `webview_session` cookie is on disk;
-              // otherwise the first SPA request would race the cookie and hit
-              // nuvannapi anonymously, forcing an in-SPA login.
-              future: _cookieInjection,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return Container(
-                    color: AppColors.background,
-                    alignment: Alignment.center,
-                    child: const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.6,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                            AppColors.primary),
-                      ),
-                    ),
-                  );
-                }
-                return Stack(
-                  children: [
-                    _buildWebView(),
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: LoadingProgressBar(progress: _progress),
-                    ),
-                    if (!_firstLoadComplete)
-                      Container(
-                        color: AppColors.background,
-                        alignment: Alignment.center,
-                        child: const SizedBox(
+          appBar: WebviewNativeAppBar(
+            title: route.title,
+            showBack:
+                route.showBack ||
+                WebviewShellConfig.showMarketplaceBack(route.path, route.role),
+            onBack: () => unawaited(_onBackPressed()),
+            onSearch: () => unawaited(_openSearch()),
+            activeLanguageCode: _activeLanguageCode,
+            onLanguageSelected: (code) => unawaited(_setLanguage(code)),
+            isAuthenticated: auth.isAuthenticated,
+            userInitial: _userInitial(),
+            showDashboardSwitcher: _showDashboardSwitcher(auth),
+            role: route.role,
+            onNavigate: (path) => unawaited(_navigateTo(path)),
+            onLogout: _handleLogout,
+          ),
+          body: FutureBuilder<void>(
+            future: _cookieInjection,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(strokeWidth: 2.6),
+                  ),
+                );
+              }
+              return Stack(
+                children: [
+                  _buildWebView(),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: LoadingProgressBar(progress: _progress),
+                  ),
+                  if (!_firstLoadComplete)
+                    const ColoredBox(
+                      color: AppColors.background,
+                      child: Center(
+                        child: SizedBox(
                           width: 32,
                           height: 32,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.6,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.primary),
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2.6),
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
+                    ),
+                ],
+              );
+            },
+          ),
+          bottomNavigationBar: WebviewNativeBottomNav(
+            path: route.path,
+            tabs: route.tabs,
+            onTabSelected: _navigateToPath,
           ),
         ),
       ),
@@ -447,6 +665,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
     return InAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(EnvConfig.webBaseUrl)),
       pullToRefreshController: _pullToRefreshController,
+      initialUserScripts: UnmodifiableListView<UserScript>([
+        UserScript(
+          source: WebviewChromeInjection.bootstrapScript,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        ),
+      ]),
       initialSettings: InAppWebViewSettings(
         // JavaScript & web standards
         javaScriptEnabled: true,
@@ -530,9 +754,36 @@ class _WebViewScreenState extends State<WebViewScreen> {
             }
           },
         );
+
+        // SPA → Flutter: client-side route changes for the native shell.
+        controller.addJavaScriptHandler(
+          handlerName: 'routeChanged',
+          callback: (args) {
+            if (args.isNotEmpty) {
+              _applyRoutePayload(args.first);
+            }
+            return null;
+          },
+        );
+
+        // SPA → Flutter: profile loaded; update dashboard chrome flags.
+        controller.addJavaScriptHandler(
+          handlerName: 'shellCapabilities',
+          callback: (args) {
+            if (args.isEmpty || args.first is! Map) return null;
+            final payload = args.first as Map;
+            final canAccess = payload['canAccessVendor'] == true;
+            if (!mounted) return null;
+            setState(() => _canAccessVendor = canAccess);
+            return null;
+          },
+        );
       },
       onLoadStart: (_, url) {
         setState(() => _progress = 0.05);
+        if (url != null) {
+          _currentPath = WebviewShellConfig.fromPath(url.path).path;
+        }
       },
       onLoadStop: (_, url) async {
         await _pullToRefreshController.endRefreshing();
@@ -540,7 +791,11 @@ class _WebViewScreenState extends State<WebViewScreen> {
         setState(() {
           _progress = 1.0;
           _firstLoadComplete = true;
+          if (url != null) {
+            _currentPath = WebviewShellConfig.fromPath(url.path).path;
+          }
         });
+        await _syncRouteFromController();
         AppLogger.i('[WebView] onLoadStop url=$url firstLoad=$_authRefreshPinged');
         // Ping once after the first full page load so the SPA validates the
         // injected cookie. Client-side navigations must not re-trigger this
@@ -550,6 +805,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
           AppLogger.i('[WebView] onLoadStop → initial _pingAuthRefresh');
           unawaited(_pingAuthRefresh());
         }
+        _scheduleVendorAccessSync();
       },
       onReceivedError: (_, request, error) async {
         AppLogger.w(
