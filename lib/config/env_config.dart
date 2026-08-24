@@ -81,6 +81,15 @@ class EnvConfig {
         fallback: 'https://api.revomaket.com/v1/webview/logout',
       );
 
+  /// Origin of the nuvannapi host (e.g. `https://dev-api.revomaket.com`).
+  /// Used to bind the `webview_session` cookie directly on the API host so
+  /// cross-origin `fetch(..., { credentials: 'include' })` from the SPA sends it.
+  static String get apiOrigin {
+    final uri = Uri.parse(webviewSessionUrl);
+    if (uri.host.isEmpty) return '';
+    return uri.origin;
+  }
+
   // ---------------------------------------------------------------------------
   // Firebase (only used on web; mobile uses native config files)
   // ---------------------------------------------------------------------------

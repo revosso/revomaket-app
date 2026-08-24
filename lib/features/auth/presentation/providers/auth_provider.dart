@@ -79,12 +79,31 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> logout() async {
-    await _repository.logout();
+  /// Signs out locally by default. Pass [endIdpSession: true] only when an
+  /// Auth0 browser logout roundtrip is explicitly required.
+  Future<void> logout({bool endIdpSession = false}) async {
+    await _repository.logout(endIdpSession: endIdpSession);
     _session = null;
     _status = AuthStatus.unauthenticated;
     notifyListeners();
   }
 
   Future<String?> accessToken() => _repository.currentAccessToken();
+
+  /// Returns a fresh Auth0 access token for the embedded SPA (via JS bridge).
+  Future<String?> ensureAccessToken() => _repository.getValidAccessToken();
+
+  /// Re-mints the nuvannapi WebView session cookie from the current Auth0
+  /// id_token. Returns `null` when the native session is gone.
+  Future<WebviewSession?> remintWebviewSession() async {
+    try {
+      final webview = await _repository.remintWebviewSession();
+      notifyListeners();
+      return webview;
+    } catch (e, s) {
+      AppLogger.w('Auth: remint webview session failed', e, s);
+      notifyListeners();
+      return null;
+    }
+  }
 }

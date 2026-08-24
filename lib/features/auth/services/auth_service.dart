@@ -64,10 +64,17 @@ class AuthService {
     }
   }
 
-  /// Clears the Auth0 SSO session via the OIDC end-session endpoint. The
-  /// [idToken] hint lets Auth0 skip the logout confirmation prompt.
-  Future<void> logout({String? idToken}) async {
-    if (!EnvConfig.hasAuth0Config) return;
+  /// Clears the Auth0 SSO session via the OIDC end-session endpoint.
+  ///
+  /// On mobile this opens the system browser (Auth0 hosted logout page), which
+  /// is poor UX when the user signs out from inside the WebView shell. Prefer
+  /// local-only logout via [endIdpSession: false]; the next [login] uses
+  /// `prompt=login` so credentials are still required when needed.
+  Future<void> logout({
+    String? idToken,
+    bool endIdpSession = false,
+  }) async {
+    if (!EnvConfig.hasAuth0Config || !endIdpSession) return;
     try {
       await _appAuth.endSession(
         EndSessionRequest(

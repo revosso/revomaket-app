@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,7 +8,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../config/app_routes.dart';
-import '../../../../config/app_theme.dart';
 import '../../../../config/env_config.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
@@ -18,8 +18,14 @@ import '../../../../services/deep_link_service.dart';
 import '../../../../services/url_launcher_service.dart';
 import '../../../auth/data/models/webview_session.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../domain/webview_shell_config.dart';
+import '../../services/webview_chrome_injection.dart';
+import '../../services/webview_vendor_access_service.dart';
 import '../widgets/exit_confirmation_dialog.dart';
 import '../widgets/loading_progress_bar.dart';
+import '../widgets/webview_native_app_bar.dart';
+import '../widgets/webview_native_bottom_nav.dart';
+import '../widgets/webview_search_sheet.dart';
 
 /// Full-screen WebView that wraps `https://revomaket.com/`.
 ///
@@ -52,7 +58,23 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   double _progress = 0;
   bool _firstLoadComplete = false;
+  bool _authRefreshPinged = false;
+  bool _refreshSessionInFlight = false;
+  DateTime? _lastRefreshSessionAt;
   Future<void>? _cookieInjection;
+  String _currentPath = '/';
+  bool _sellerSession = false;
+  bool _canAccessVendor = false;
+  String _activeLanguageCode = 'en';
+  final WebviewVendorAccessService _vendorAccessService =
+      WebviewVendorAccessService();
+
+  static const _refreshSessionCooldown = Duration(seconds: 10);
+
+  WebviewRouteState get _routeState => WebviewShellConfig.fromPath(
+        _currentPath,
+        sellerSession: _sellerSession,
+      );
 
   @override
   void initState() {
@@ -124,7 +146,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     // Same-origin HTTPS - keep inside the WebView.
     if (UrlUtils.isInternalUrl(uri)) {
-      if (!UrlUtils.isSecureHttp(uri)) {
+      final base = Uri.parse(EnvConfig.webBaseUrl);
+      final allowLocalHttp = base.scheme == 'http' &&
+          uri.scheme == 'http' &&
+          uri.host == base.host &&
+          uri.port == base.port;
+      if (!UrlUtils.isSecureHttp(uri) && !allowLocalHttp) {
         AppLogger.w('Refusing non-HTTPS navigation: $uri');
         return false;
       }
@@ -143,22 +170,209 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
 
   Future<bool> _onBackPressed() async {
+    final route = _routeState;
+    if (WebviewShellConfig.showMarketplaceBack(route.path, route.role)) {
+      await _navigateTo('/');
+      return false;
+    }
+
     final controller = _controller;
     if (controller != null && await controller.canGoBack()) {
       await controller.goBack();
       return false;
     }
+
+    // SPA client-side routes (e.g. /vendor/settings) often skip WebView history.
+    if (WebviewShellConfig.fallsBackToMarketplaceHome(route.role)) {
+      await _navigateTo('/');
+      return false;
+    }
+
     if (!mounted) return true;
     return ExitConfirmationDialog.show(context);
   }
 
+  Future<void> _navigateTo(String location) async {
+    final controller = _controller;
+    if (controller == null) return;
+
+    final uri = Uri.parse(location.startsWith('/') ? location : '/$location');
+    final normalizedPath = WebviewShellConfig.fromPath(uri.path).path;
+    final target = uri.hasQuery ? '$normalizedPath?${uri.query}' : normalizedPath;
+
+    if (_currentPath == normalizedPath &&
+        !uri.hasQuery &&
+        _locationMatchesCurrent(uri)) {
+      return;
+    }
+
+    final escaped = target.replaceAll('\\', r'\\').replaceAll("'", r"\'");
+    try {
+      await controller.evaluateJavascript(
+        source: '''
+(function (loc) {
+  var target = loc.startsWith('/') ? loc : '/' + loc;
+  var current = window.location.pathname + window.location.search;
+  if (current === target) return;
+  window.history.pushState(null, '', target);
+  window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+})('$escaped');
+''',
+      );
+    } catch (e, s) {
+      AppLogger.w('[WebView] SPA navigate failed; loading URL', e, s);
+      final base = Uri.parse(EnvConfig.webBaseUrl);
+      await controller.loadUrl(
+        urlRequest: URLRequest(url: WebUri.uri(base.replace(
+          path: normalizedPath,
+          query: uri.hasQuery ? uri.query : null,
+        ))),
+      );
+    }
+  }
+
+  bool _locationMatchesCurrent(Uri uri) {
+    // Path-only navigation; query changes always re-navigate.
+    return !uri.hasQuery;
+  }
+
+  Future<void> _navigateToPath(String path) => _navigateTo(path);
+
+  Future<void> _openSearch() async {
+    if (!mounted) return;
+    final query = await WebviewSearchSheet.show(context);
+    if (query == null || !mounted) return;
+    if (query.isEmpty) {
+      await _navigateTo('/shop');
+      return;
+    }
+    final encoded = Uri.encodeQueryComponent(query);
+    await _navigateTo('/shop?q=$encoded');
+  }
+
+  Future<void> _setLanguage(String code) async {
+    final controller = _controller;
+    if (controller == null) return;
+    if (!mounted) return;
+    setState(() => _activeLanguageCode = code);
+    try {
+      await controller.evaluateJavascript(
+        source: WebviewChromeInjection.setLanguageScript(code),
+      );
+    } catch (e, s) {
+      AppLogger.w('[WebView] setLanguage failed', e, s);
+    }
+  }
+
+  Future<void> _syncLanguageFromController() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final result = await controller.evaluateJavascript(
+        source: WebviewChromeInjection.readLanguageScript,
+      );
+      final code = result?.toString();
+      if (code != null && code.isNotEmpty && mounted) {
+        setState(() => _activeLanguageCode = code);
+      }
+    } catch (e, s) {
+      AppLogger.w('[WebView] language sync failed', e, s);
+    }
+  }
+
+  String? _userInitial() {
+    final auth = context.read<AuthProvider>();
+    final sessionUser = auth.session?.user;
+    final webUser = auth.webviewSession?.user;
+    final name = sessionUser?.name ??
+        webUser?['name'] as String? ??
+        sessionUser?.email ??
+        webUser?['email'] as String?;
+    if (name == null || name.isEmpty) return null;
+    return name.characters.first.toUpperCase();
+  }
+
+  bool _showDashboardSwitcher(AuthProvider auth) {
+    if (!auth.isAuthenticated) return false;
+    return _canAccessVendor ||
+        _routeState.role != WebviewShellRole.buyer ||
+        _sellerSession;
+  }
+
+  Future<void> _syncVendorAccessFromController() async {
+    if (!mounted) return;
+    if (!context.read<AuthProvider>().isAuthenticated) {
+      if (_canAccessVendor) setState(() => _canAccessVendor = false);
+      return;
+    }
+
+    final token = await context.read<AuthProvider>().ensureAccessToken();
+    final canAccess = await _vendorAccessService.canAccessVendorDashboard(
+      accessToken: token,
+    );
+    if (!mounted || canAccess == _canAccessVendor) return;
+    setState(() => _canAccessVendor = canAccess);
+  }
+
+  void _scheduleVendorAccessSync() {
+    unawaited(_runVendorAccessRetries());
+  }
+
+  Future<void> _runVendorAccessRetries() async {
+    const delays = [
+      Duration.zero,
+      Duration(seconds: 2),
+      Duration(seconds: 5),
+    ];
+    for (final delay in delays) {
+      if (!mounted) return;
+      if (delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+      }
+      if (!mounted) return;
+      await _syncVendorAccessFromController();
+      if (_canAccessVendor) return;
+    }
+  }
+
+  void _applyRoutePayload(Object? payload) {
+    if (payload is! Map) return;
+    final path = payload['path']?.toString();
+    if (path == null) return;
+    final sellerSession = payload['sellerSession'] == true;
+    if (!mounted) return;
+    setState(() {
+      _currentPath = WebviewShellConfig.fromPath(path).path;
+      _sellerSession = sellerSession;
+    });
+  }
+
+  Future<void> _syncRouteFromController() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final url = await controller.getUrl();
+      if (url == null || !mounted) return;
+      setState(() {
+        _currentPath = WebviewShellConfig.fromPath(url.path).path;
+      });
+      await controller.evaluateJavascript(
+        source: WebviewChromeInjection.bootstrapScript,
+      );
+      await _syncLanguageFromController();
+      await _syncVendorAccessFromController();
+    } catch (e, s) {
+      AppLogger.w('[WebView] route sync failed', e, s);
+    }
+  }
+
   /// Invoked by the SPA via `flutter_inappwebview.callHandler('logout')`.
-  /// Clears both the Auth0 session and all WebView cookies, then sends the
-  /// user back to the login screen.
+  /// Clears the native Auth0 session and WebView cookies locally, then sends
+  /// the user to the login screen (no Auth0 browser logout page).
   Future<void> _handleLogout() async {
     AppLogger.i('[WebView] logout signalled by web app');
     try {
-      await context.read<AuthProvider>().logout();
+      await context.read<AuthProvider>().logout(endIdpSession: false);
     } catch (e, s) {
       AppLogger.w('[WebView] auth logout failed (continuing)', e, s);
     }
@@ -174,33 +388,75 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   /// Called by the `refreshSession` JS handler.
   ///
-  /// Re-injects a fresh webview session cookie, then tells the SPA to
-  /// re-load the user profile via `window.__revomaket_refresh_auth`.
+  /// Re-mints the nuvannapi session from the native Auth0 id_token, injects
+  /// the new cookie, then tells the SPA to re-load the user profile.
   Future<void> _handleRefreshSession() async {
+    if (_refreshSessionInFlight) {
+      AppLogger.i('[WebView] refreshSession skipped — already in flight');
+      return;
+    }
+    final last = _lastRefreshSessionAt;
+    if (last != null &&
+        DateTime.now().difference(last) < _refreshSessionCooldown) {
+      final remaining = _refreshSessionCooldown - DateTime.now().difference(last);
+      AppLogger.i(
+        '[WebView] refreshSession skipped — cooldown (${remaining.inMilliseconds}ms left)',
+      );
+      return;
+    }
+
+    _refreshSessionInFlight = true;
+    _lastRefreshSessionAt = DateTime.now();
     AppLogger.i('[WebView] refreshSession requested by SPA');
     try {
-      // Re-mint the session from the native AuthProvider (which may already
-      // have a valid token from its in-memory state, or will re-login if not).
+      if (mounted) {
+        final reminted = await context.read<AuthProvider>().remintWebviewSession();
+        if (reminted == null) {
+          AppLogger.w(
+            '[WebView] refreshSession: no native auth session to remint',
+          );
+          return;
+        }
+        AppLogger.i(
+          '[WebView] refreshSession reminted token=${_tokenPreview(reminted.sessionToken)} '
+          'cookieDomain=${reminted.cookieDomain}',
+        );
+      }
       await _injectCookies();
+      // Give the platform cookie jar time to commit before credentialed fetch.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      AppLogger.i('[WebView] refreshSession pinging __revomaket_refresh_auth');
+      await _pingAuthRefresh();
+      AppLogger.i('[WebView] refreshSession complete');
     } catch (e, s) {
-      AppLogger.w('[WebView] refreshSession cookie re-inject failed', e, s);
+      AppLogger.w('[WebView] refreshSession failed', e, s);
+    } finally {
+      _refreshSessionInFlight = false;
     }
-    await _pingAuthRefresh();
   }
 
   /// Calls `window.__revomaket_refresh_auth()` in the SPA if the function is
   /// present, triggering a profile re-fetch without a full page reload.
   Future<void> _pingAuthRefresh() async {
     final controller = _controller;
-    if (controller == null) return;
+    if (controller == null) {
+      AppLogger.w('[WebView] _pingAuthRefresh skipped — no controller');
+      return;
+    }
     try {
       await controller.evaluateJavascript(
         source:
-            'if (typeof window.__revomaket_refresh_auth === "function") { window.__revomaket_refresh_auth(); }',
+            'if (typeof window.__revomaket_refresh_auth === "function") { window.__revomaket_refresh_auth(); "ok"; } else { "missing"; }',
       );
+      AppLogger.i('[WebView] _pingAuthRefresh evaluateJavascript sent');
     } catch (e, s) {
       AppLogger.w('[WebView] _pingAuthRefresh evaluateJavascript failed', e, s);
     }
+  }
+
+  static String _tokenPreview(String token) {
+    if (token.length <= 8) return '***';
+    return '${token.substring(0, 8)}…';
   }
 
   /// Reads the current [WebviewSession] from [AuthProvider] (if any) and
@@ -220,6 +476,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final url = WebUri(EnvConfig.webBaseUrl);
     final webHost = Uri.parse(EnvConfig.webBaseUrl).host;
     final isLocalDev = EnvConfig.webBaseUrl.startsWith('http://');
+    final cookieName = session.cookieName.isNotEmpty
+        ? session.cookieName
+        : 'webview_session';
 
     final String? domain =
         isLocalDev ? null : _effectiveCookieDomain(webHost, session);
@@ -227,12 +486,18 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final sessionSameSite = isLocalDev
         ? HTTPCookieSameSitePolicy.LAX
         : HTTPCookieSameSitePolicy.NONE;
+    final apiOrigin = EnvConfig.apiOrigin;
+    final apiUrl = apiOrigin.isNotEmpty ? WebUri(apiOrigin) : null;
+
+    // Drop stale values so the WebView does not keep sending revoked tokens.
+    await cm.deleteCookie(url: url, name: cookieName, domain: domain);
+    if (apiUrl != null) {
+      await cm.deleteCookie(url: apiUrl, name: cookieName);
+    }
 
     await cm.setCookie(
       url: url,
-      name: session.cookieName.isNotEmpty
-          ? session.cookieName
-          : 'webview_session',
+      name: cookieName,
       value: session.sessionToken,
       domain: domain,
       path: '/',
@@ -240,6 +505,20 @@ class _WebViewScreenState extends State<WebViewScreen> {
       isHttpOnly: true,
       sameSite: sessionSameSite,
     );
+
+    // Host-only cookie on the API origin — required on Android WebView so
+    // `fetch('https://dev-api…', { credentials: 'include' })` sends the token.
+    if (apiUrl != null && !isLocalDev) {
+      await cm.setCookie(
+        url: apiUrl,
+        name: cookieName,
+        value: session.sessionToken,
+        path: '/',
+        isSecure: true,
+        isHttpOnly: true,
+        sameSite: HTTPCookieSameSitePolicy.NONE,
+      );
+    }
 
     await cm.setCookie(
       url: url,
@@ -250,6 +529,11 @@ class _WebViewScreenState extends State<WebViewScreen> {
       isSecure: secure,
       isHttpOnly: false,
       sameSite: HTTPCookieSameSitePolicy.LAX,
+    );
+
+    AppLogger.i(
+      '[WebView] injected $cookieName token=${_tokenPreview(session.sessionToken)} '
+      'host=$webHost domain=$domain apiOrigin=$apiOrigin sentinel=revomaket_auth_token',
     );
   }
 
@@ -294,8 +578,17 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final route = _routeState;
+    final auth = context.watch<AuthProvider>();
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: AppTheme.contentOverlay,
+      value: const SystemUiOverlayStyle(
+        statusBarColor: AppColors.primary,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarColor: AppColors.surface,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
       child: PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, _) async {
@@ -306,57 +599,62 @@ class _WebViewScreenState extends State<WebViewScreen> {
           }
         },
         child: Scaffold(
-          body: SafeArea(
-            top: true,
-            bottom: true,
-            child: FutureBuilder<void>(
-              // Block the WebView until the `webview_session` cookie is on disk;
-              // otherwise the first SPA request would race the cookie and hit
-              // nuvannapi anonymously, forcing an in-SPA login.
-              future: _cookieInjection,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return Container(
-                    color: AppColors.background,
-                    alignment: Alignment.center,
-                    child: const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.6,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                            AppColors.primary),
-                      ),
-                    ),
-                  );
-                }
-                return Stack(
-                  children: [
-                    _buildWebView(),
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: LoadingProgressBar(progress: _progress),
-                    ),
-                    if (!_firstLoadComplete)
-                      Container(
-                        color: AppColors.background,
-                        alignment: Alignment.center,
-                        child: const SizedBox(
+          appBar: WebviewNativeAppBar(
+            title: route.title,
+            showBack:
+                route.showBack ||
+                WebviewShellConfig.showMarketplaceBack(route.path, route.role),
+            onBack: () => unawaited(_onBackPressed()),
+            onSearch: () => unawaited(_openSearch()),
+            activeLanguageCode: _activeLanguageCode,
+            onLanguageSelected: (code) => unawaited(_setLanguage(code)),
+            isAuthenticated: auth.isAuthenticated,
+            userInitial: _userInitial(),
+            showDashboardSwitcher: _showDashboardSwitcher(auth),
+            role: route.role,
+            onNavigate: (path) => unawaited(_navigateTo(path)),
+            onLogout: _handleLogout,
+          ),
+          body: FutureBuilder<void>(
+            future: _cookieInjection,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(strokeWidth: 2.6),
+                  ),
+                );
+              }
+              return Stack(
+                children: [
+                  _buildWebView(),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: LoadingProgressBar(progress: _progress),
+                  ),
+                  if (!_firstLoadComplete)
+                    const ColoredBox(
+                      color: AppColors.background,
+                      child: Center(
+                        child: SizedBox(
                           width: 32,
                           height: 32,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.6,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.primary),
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2.6),
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
+                    ),
+                ],
+              );
+            },
+          ),
+          bottomNavigationBar: WebviewNativeBottomNav(
+            path: route.path,
+            tabs: route.tabs,
+            onTabSelected: _navigateToPath,
           ),
         ),
       ),
@@ -367,6 +665,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
     return InAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(EnvConfig.webBaseUrl)),
       pullToRefreshController: _pullToRefreshController,
+      initialUserScripts: UnmodifiableListView<UserScript>([
+        UserScript(
+          source: WebviewChromeInjection.bootstrapScript,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        ),
+      ]),
       initialSettings: InAppWebViewSettings(
         // JavaScript & web standards
         javaScriptEnabled: true,
@@ -426,9 +730,60 @@ class _WebViewScreenState extends State<WebViewScreen> {
             await _handleRefreshSession();
           },
         );
+
+        // SPA → Flutter: read Auth0 access token for Bearer API auth (more
+        // reliable than cross-origin cookies on Android WebView).
+        controller.addJavaScriptHandler(
+          handlerName: 'getAccessToken',
+          callback: (_) async {
+            if (!mounted) return null;
+            try {
+              final token =
+                  await context.read<AuthProvider>().ensureAccessToken();
+              if (token == null || token.isEmpty) {
+                AppLogger.w('[WebView] getAccessToken — no native session');
+                return null;
+              }
+              AppLogger.i(
+                '[WebView] getAccessToken OK preview=${_tokenPreview(token)}',
+              );
+              return token;
+            } catch (e, s) {
+              AppLogger.w('[WebView] getAccessToken failed', e, s);
+              return null;
+            }
+          },
+        );
+
+        // SPA → Flutter: client-side route changes for the native shell.
+        controller.addJavaScriptHandler(
+          handlerName: 'routeChanged',
+          callback: (args) {
+            if (args.isNotEmpty) {
+              _applyRoutePayload(args.first);
+            }
+            return null;
+          },
+        );
+
+        // SPA → Flutter: profile loaded; update dashboard chrome flags.
+        controller.addJavaScriptHandler(
+          handlerName: 'shellCapabilities',
+          callback: (args) {
+            if (args.isEmpty || args.first is! Map) return null;
+            final payload = args.first as Map;
+            final canAccess = payload['canAccessVendor'] == true;
+            if (!mounted) return null;
+            setState(() => _canAccessVendor = canAccess);
+            return null;
+          },
+        );
       },
       onLoadStart: (_, url) {
         setState(() => _progress = 0.05);
+        if (url != null) {
+          _currentPath = WebviewShellConfig.fromPath(url.path).path;
+        }
       },
       onLoadStop: (_, url) async {
         await _pullToRefreshController.endRefreshing();
@@ -436,12 +791,21 @@ class _WebViewScreenState extends State<WebViewScreen> {
         setState(() {
           _progress = 1.0;
           _firstLoadComplete = true;
+          if (url != null) {
+            _currentPath = WebviewShellConfig.fromPath(url.path).path;
+          }
         });
-        // After the SPA finishes loading, confirm the refresh callback is
-        // registered and trigger it so the SPA re-validates the session.
-        // This closes the race window where the SPA's React tree mounts
-        // before the cookie is readable.
-        unawaited(_pingAuthRefresh());
+        await _syncRouteFromController();
+        AppLogger.i('[WebView] onLoadStop url=$url firstLoad=$_authRefreshPinged');
+        // Ping once after the first full page load so the SPA validates the
+        // injected cookie. Client-side navigations must not re-trigger this
+        // or a failing profile fetch can loop with refreshSession.
+        if (!_authRefreshPinged) {
+          _authRefreshPinged = true;
+          AppLogger.i('[WebView] onLoadStop → initial _pingAuthRefresh');
+          unawaited(_pingAuthRefresh());
+        }
+        _scheduleVendorAccessSync();
       },
       onReceivedError: (_, request, error) async {
         AppLogger.w(
@@ -470,7 +834,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
         );
       },
       onConsoleMessage: (_, message) {
-        AppLogger.d('JS: ${message.messageLevel} ${message.message}');
+        final text = message.message;
+        if (text.contains('[RevomaketWebView]')) {
+          AppLogger.i('JS: $text');
+        } else {
+          AppLogger.d('JS: ${message.messageLevel} $text');
+        }
       },
     );
   }

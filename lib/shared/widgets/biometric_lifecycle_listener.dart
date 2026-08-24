@@ -4,13 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../config/app_routes.dart';
-import '../../core/constants/app_strings.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/auth/presentation/utils/biometric_flow.dart';
 import '../../services/biometric_service.dart';
 
-/// Prompts for biometrics when the app returns from the background while the
-/// user has an active session and biometric unlock is enabled.
+/// Presents a full-screen lock when the app returns from the background while
+/// the user has an active session and biometric unlock is enabled.
 class BiometricLifecycleListener extends StatefulWidget {
   const BiometricLifecycleListener({
     super.key,
@@ -29,6 +28,7 @@ class BiometricLifecycleListener extends StatefulWidget {
 class _BiometricLifecycleListenerState extends State<BiometricLifecycleListener>
     with WidgetsBindingObserver {
   bool _lockOnResume = false;
+  bool _lockScreenVisible = false;
 
   @override
   void initState() {
@@ -58,6 +58,8 @@ class _BiometricLifecycleListenerState extends State<BiometricLifecycleListener>
   }
 
   Future<void> _guardOnResume() async {
+    if (_lockScreenVisible) return;
+
     final navigator = widget.navigatorKey.currentState;
     final navContext = widget.navigatorKey.currentContext;
     if (navigator == null || navContext == null) return;
@@ -72,15 +74,14 @@ class _BiometricLifecycleListenerState extends State<BiometricLifecycleListener>
         Provider.of<BiometricService>(navContext, listen: false);
     if (!await biometric.isEnabled()) return;
 
-    final ok = await biometric.authenticate(
-      reason: AppStrings.biometricUnlockReason,
-    );
-    if (!navigator.mounted) return;
-
-    if (!ok) {
-      if (routeName == AppRoutes.biometricUnlock) return;
-      if (!mounted) return;
-      await navigator.pushNamed(AppRoutes.biometricUnlock);
+    _lockScreenVisible = true;
+    try {
+      await navigator.pushNamed(
+        AppRoutes.biometricUnlock,
+        arguments: true,
+      );
+    } finally {
+      _lockScreenVisible = false;
     }
   }
 

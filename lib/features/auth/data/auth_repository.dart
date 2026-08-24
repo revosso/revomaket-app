@@ -64,10 +64,12 @@ class AuthRepository {
     return session;
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool endIdpSession = false}) async {
     try {
-      final stored = await _sessionManager.load();
-      await _authService.logout(idToken: stored?.idToken);
+      if (endIdpSession) {
+        final stored = await _sessionManager.load();
+        await _authService.logout(idToken: stored?.idToken, endIdpSession: true);
+      }
     } finally {
       final webview = _webviewSession ?? await _webviewSessionStorage.load();
       if (webview != null) {
@@ -83,6 +85,57 @@ class AuthRepository {
 
   Future<String?> currentAccessToken() =>
       _sessionManager.currentAccessToken();
+
+  /// Returns a valid Auth0 access token, refreshing the session if needed.
+  Future<String?> getValidAccessToken() async {
+    final stored = await _sessionManager.load();
+    if (stored == null) return null;
+    final auth = await _refreshIfNeeded(stored);
+    return auth?.accessToken;
+  }
+
+  /// Re-mints the nuvannapi WebView session from the current Auth0 id_token.
+  ///
+  /// Called when the SPA's profile fetch keeps failing — re-injecting the
+  /// previous cookie is not enough if the server-side session expired.
+  Future<WebviewSession?> remintWebviewSession() async {
+    AppLogger.i('[Auth] remintWebviewSession start');
+    final stored = await _sessionManager.load();
+    if (stored == null) {
+      AppLogger.w('[Auth] remintWebviewSession — no stored Auth0 session');
+      _webviewSession = null;
+      await _webviewSessionStorage.clear();
+      return null;
+    }
+
+    final auth = await _refreshIfNeeded(stored);
+    if (auth == null) {
+      AppLogger.w('[Auth] remintWebviewSession — Auth0 refresh failed');
+      _webviewSession = null;
+      await _webviewSessionStorage.clear();
+      return null;
+    }
+
+    final previous = _webviewSession ?? await _webviewSessionStorage.load();
+    AppLogger.i(
+      '[Auth] remintWebviewSession bridging id_token for ${auth.user.id}',
+    );
+    final reminted = await _bridgeAndPersist(auth);
+    if (reminted == null) {
+      AppLogger.w('[Auth] remintWebviewSession — POST /webview/session failed');
+      return null;
+    }
+
+    _webviewSession = reminted;
+    if (previous != null && previous.sessionToken != reminted.sessionToken) {
+      AppLogger.i('[Auth] remintWebviewSession revoking previous token');
+      await _webviewSessionService.revoke(previous.sessionToken);
+    }
+    AppLogger.i(
+      '[Auth] remintWebviewSession OK cookieDomain=${reminted.cookieDomain}',
+    );
+    return _webviewSession;
+  }
 
   // ---------------------------------------------------------------------------
   // Internals

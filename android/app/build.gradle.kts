@@ -42,6 +42,7 @@ android {
         // own placeholders (applicationName, etc.) are preserved.
         manifestPlaceholders += mapOf(
             "appAuthRedirectScheme" to "com.revosso.revomaket",
+            "usesCleartextTraffic" to "false",
         )
 
         multiDexEnabled = true
@@ -74,6 +75,9 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            manifestPlaceholders += mapOf(
+                "usesCleartextTraffic" to "true",
+            )
         }
     }
 }

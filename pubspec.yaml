@@ -2,7 +2,7 @@ name: revomaket_app
 description: "Revomaket - Official mobile app for revomaket.com."
 publish_to: 'none'
 
-version: 1.0.0+6
+version: 1.0.0+9
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -62,6 +62,8 @@ dependencies:
 
   # Biometrics (optional unlock)
   local_auth: ^2.3.0
+  local_auth_android: ^1.0.56
+  local_auth_darwin: ^1.6.1
 
 dev_dependencies:
   flutter_test:

@@ -18,7 +18,17 @@ class AppStrings {
       'Use your fingerprint or face to continue.';
   static const String biometricUnlockReason =
       'Authenticate to access Revomaket';
+  static const String biometricEnableReason =
+      'Verify your identity to enable biometric unlock';
   static const String biometricUnlockCta = 'Unlock';
+  static const String biometricUnlockCanceled =
+      'Authentication canceled. Tap Unlock to try again.';
+  static const String biometricUnlockFailed =
+      'Could not verify your identity. Please try again.';
+  static const String biometricUnlockLockedOut =
+      'Too many attempts. Wait a moment, then try again.';
+  static const String biometricUnlockUnavailable =
+      'Biometrics are not available on this device.';
   static const String biometricSignInAgainCta = 'Sign in with your account';
   static const String biometricEnableTitle = 'Enable biometric unlock?';
   static const String biometricEnableMessage =
